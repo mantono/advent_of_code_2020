@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 
 pub fn first(input: String) -> String {
-    let mut occurences: HashMap<u16, usize> = HashMap::with_capacity(256);
+    let mut occurences: HashMap<u32, usize> = HashMap::with_capacity(256);
 
     let tiles: Vec<Tile> = input.split("\n\n").map(Tile::from).collect();
 
@@ -12,16 +12,24 @@ pub fn first(input: String) -> String {
         occurences.insert(tile.right, occurences.get(&tile.right).unwrap_or(&0) + 1);
     });
 
-    let corner_hashes: Vec<u16> = occurences
+    let corner_hashes: Vec<u32> = occurences
         .iter()
-        .filter(|(_, v)| **v < 3)
-        .map(|(k, v)| *k)
+        .filter(|(_, v)| **v == 1)
+        .map(|(k, _)| *k)
         .collect();
 
     let corners: Vec<&Tile> = tiles
         .iter()
         .filter(|tile| is_corner(tile, &corner_hashes))
         .collect();
+
+    for t0 in &mut tiles {
+        for t1 in &tiles {
+            if t0.can_attch(t1) {
+                t0.attach(t1)
+            }
+        }
+    }
 
     if corners.len() != 4 {
         panic!("Expected 4 corners, got {}", corners.len())
@@ -31,17 +39,28 @@ pub fn first(input: String) -> String {
     result.to_string()
 }
 
-fn is_corner(tile: &Tile, corners: &Vec<u16>) -> bool {
+fn is_corner(tile: &Tile, corners: &Vec<u32>) -> bool {
     corners.iter().filter(|hash| tile.can_attch(**hash)).count() == 2
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 struct Tile {
     id: u16,
-    up: u16,
-    left: u16,
-    down: u16,
-    right: u16,
+    up: u32,
+    left: u32,
+    down: u32,
+    right: u32,
+    attached: Vec<u16>,
+}
+
+impl Display for Tile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}, {}, {}, {}",
+            self.up, self.right, self.down, self.left
+        )
+    }
 }
 
 impl Tile {
@@ -52,10 +71,10 @@ impl Tile {
             .filter(|line| !line.is_empty());
         let id: u16 = lines.next().unwrap()[5..9].parse::<u16>().unwrap();
         let img: Vec<&str> = lines.collect();
-        let up: u16 = Self::up(&img);
-        let down: u16 = Self::down(&img);
-        let left: u16 = Self::left(&img);
-        let right: u16 = Self::right(&img);
+        let up: u32 = Self::up(&img);
+        let down: u32 = Self::down(&img);
+        let left: u32 = Self::left(&img);
+        let right: u32 = Self::right(&img);
 
         Tile {
             id,
@@ -63,35 +82,36 @@ impl Tile {
             left,
             down,
             right,
+            attached: Vec::with_capacity(4),
         }
     }
 
-    fn up(img: &Vec<&str>) -> u16 {
-        bin_str_to_u16(&img.get(0).unwrap().replace("#", "1").replace(".", "0")).unwrap()
+    fn up(img: &Vec<&str>) -> u32 {
+        bin_str_to_u32(&img.get(0).unwrap().replace("#", "1").replace(".", "0")).unwrap()
     }
 
-    fn down(img: &Vec<&str>) -> u16 {
-        bin_str_to_u16(&img.last().unwrap().replace("#", "1").replace(".", "0")).unwrap()
+    fn down(img: &Vec<&str>) -> u32 {
+        bin_str_to_u32(&img.last().unwrap().replace("#", "1").replace(".", "0")).unwrap()
     }
 
-    fn left(img: &Vec<&str>) -> u16 {
+    fn left(img: &Vec<&str>) -> u32 {
         let num: String = img
             .iter()
             .map(|line| line.chars().nth(0).unwrap())
             .map(Self::conv_char)
             .collect::<String>();
 
-        bin_str_to_u16(&num).unwrap()
+        bin_str_to_u32(&num).unwrap()
     }
 
-    fn right(img: &Vec<&str>) -> u16 {
+    fn right(img: &Vec<&str>) -> u32 {
         let num: String = img
             .iter()
-            .map(|line| line.chars().nth(0).unwrap())
+            .map(|line| line.chars().last().unwrap())
             .map(Self::conv_char)
             .collect::<String>();
 
-        bin_str_to_u16(&num).unwrap()
+        bin_str_to_u32(&num).unwrap()
     }
 
     fn conv_char(c: char) -> char {
@@ -101,14 +121,36 @@ impl Tile {
             _ => panic!("Unexpected char '{}'", c),
         }
     }
+    /*
+    pub fn can_attch(&self, side: u32) -> bool {
+        self.down == side || self.right == side || self.down == side || self.left == side
+    } */
 
-    pub fn can_attch(&self, side: u16) -> bool {
-        self.up == side || self.right == side || self.down == side || self.left == side
+    pub fn can_attch(&self, other: &Tile) -> bool {
+        let mut sides = vec![
+            self.left,
+            self.right,
+            self.up,
+            self.down,
+            other.left,
+            other.right,
+            other.up,
+            other.down,
+        ];
+        sides.sort();
+        sides.dedup();
+        sides.len() < 8
+    }
+
+    pub fn attach(&mut self, other: &Tile) {
+        self.attached.push(other.id);
     }
 }
 
-fn bin_str_to_u16(binary: &str) -> Result<u16, String> {
-    u16::from_str_radix(binary, 2).map_err(|_| format!("Unable to convert {} to u16", binary))
+fn bin_str_to_u32(binary: &str) -> Result<u32, String> {
+    let bin_rev: String = binary.chars().rev().collect();
+    let binary = format!("{}{}", binary, bin_rev);
+    u32::from_str_radix(&binary, 2).map_err(|_| format!("Unable to convert {} to u32", binary))
 }
 
 pub fn second(input: String) -> String {
@@ -234,3 +276,13 @@ mod tests {
         assert_eq!("20899048083289", first(input.to_string()))
     }
 }
+
+// 215340, 91752,  237468, 510270
+// 727437, 510270, 577713, 861771
+// 989583, 294930, 24672,  924039
+// 970935, 239964, 215340, 589833
+// 555489, 118968, 239964, 989583
+// 868395, 579249, 18720,  970935
+// 165396, 579249, 87720,  467022
+// 589833, 727437, 87720,  278466
+// 719349, 270402, 188532, 630873
