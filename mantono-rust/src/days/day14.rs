@@ -1,6 +1,5 @@
-use num_traits::cast;
 use regex::Regex;
-use std::{collections::HashMap, convert::TryInto, fmt::Display};
+use std::{collections::HashMap, fmt::Display};
 
 pub fn first(input: String) -> String {
     let mut mem: Memory = Memory::with_capacity(512);
@@ -45,7 +44,6 @@ impl Memory {
     }
 
     fn assign(&mut self, addr: usize, value: u64) {
-        //let current: u64 = *self.mem.get(&addr).unwrap_or(&0u64);
         let val: u64 = (value | self.mask_or) & !self.mask_nand;
         self.mem.insert(addr, val);
     }
