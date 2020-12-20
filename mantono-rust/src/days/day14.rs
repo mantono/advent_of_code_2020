@@ -1,13 +1,53 @@
 use regex::Regex;
-use std::{convert::TryInto, fmt::Display};
+use std::{collections::HashMap, convert::TryInto, fmt::Display};
 
 pub fn first(input: String) -> String {
-    input
-        .lines()
-        .filter_map(|line| Instr::from(&line))
-        .for_each(|i| println!("{}", i));
+    let mut mem: Memory = Memory::with_capacity(512);
 
-    "".to_string()
+    let instr: Vec<Instr> = input
+        .lines()
+        .filter_map(|line| Instr::from(&line.trim()))
+        .collect();
+
+    for i in instr {
+        mem.execute(&i)
+    }
+
+    mem.sum().to_string()
+}
+
+struct Memory {
+    mem: HashMap<usize, u64>,
+    mask: [Bit; 36],
+}
+
+impl Memory {
+    pub fn with_capacity(size: usize) -> Memory {
+        Memory {
+            mem: HashMap::with_capacity(size),
+            mask: [Bit::Off; 36],
+        }
+    }
+
+    pub fn execute(&mut self, instr: &Instr) {
+        match instr {
+            Instr::Assign { addr, value } => self.assign(*addr, *value),
+            Instr::Mask { bits } => self.set_mask(bits),
+        }
+    }
+
+    fn set_mask(&mut self, mask: &[Bit; 36]) {
+        self.mask.copy_from_slice(mask);
+    }
+
+    fn assign(&mut self, addr: usize, value: u64) {
+        let current: u64 = *self.mem.get(&addr).unwrap_or(&0u64);
+        self.mem.insert(addr, current + value);
+    }
+
+    pub fn sum(&self) -> u64 {
+        self.mem.iter().map(|(_, v)| v).sum()
+    }
 }
 
 pub fn second(input: String) -> String {
@@ -16,14 +56,19 @@ pub fn second(input: String) -> String {
 
 enum Instr {
     Assign { addr: usize, value: u64 },
-    Mask(BitVec),
+    Mask { bits: [Bit; 36] },
 }
 
 impl Display for Instr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Instr::Assign { addr, value } => write!(f, "mem[{}] = {}", addr, value),
-            Instr::Mask(bits) => write!(f, "{}", bits),
+            Instr::Mask { bits } => {
+                for b in bits.iter() {
+                    write!(f, "{}", b)?;
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -41,19 +86,13 @@ impl Instr {
             Some(Instr::Assign { addr, value })
         } else if line.starts_with("mask") {
             let mask: &str = line.split("=").last()?.trim();
-            Some(Instr::Mask(BitVec::from(mask).unwrap()))
+            Some(Instr::bitvec_from(mask).unwrap())
         } else {
             None
         }
     }
-}
 
-struct BitVec {
-    bits: [Bit; 36],
-}
-
-impl BitVec {
-    pub fn from(mask: &str) -> Result<BitVec, String> {
+    fn bitvec_from(mask: &str) -> Result<Instr, String> {
         if mask.len() != 36 {
             Err(format!("Invalid length for BitVec: {}", mask.len()))
         } else {
@@ -63,17 +102,8 @@ impl BitVec {
                 .collect::<Vec<Bit>>()
                 .try_into()
                 .unwrap();
-            Ok(BitVec { bits })
+            Ok(Instr::Mask { bits })
         }
-    }
-}
-
-impl Display for BitVec {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for b in &self.bits {
-            write!(f, "{}", b)?;
-        }
-        Ok(())
     }
 }
 
