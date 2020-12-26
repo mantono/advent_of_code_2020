@@ -30,41 +30,31 @@ pub fn first(input: String) -> String {
 pub fn second(input: String) -> String {
     let mut adapters: Vec<usize> = input
         .lines()
-        .filter_map(|line| line.parse::<usize>().ok())
+        .filter_map(|line| line.trim().parse::<usize>().ok())
         .collect::<Vec<usize>>();
 
     adapters.sort();
     adapters.insert(0, 0);
     adapters.push(adapters.last().unwrap() + 3);
 
-    count_options(&adapters, 0).to_string()
+    count_options(&adapters).to_string()
 }
 
-fn count_options(adapters: &[usize], index: usize) -> usize {
+fn count_options(adapters: &[usize]) -> usize {
     println!("adapters: {:?}", adapters);
     if adapters.is_empty() {
         return 1;
     }
-    //std::thread::sleep(std::time::Duration::from_millis(10));
 
-    // Get current adapter + the 3 following ones
-    let end = 4.min(adapters.len());
-    let mut sub_set = adapters[..end].iter();
-    println!("subset: {:?}", sub_set);
-    let current: usize = match sub_set.next() {
-        None => return 1,
-        Some(n) => *n,
-    };
+    let current: usize = *adapters.first().unwrap();
+    let end: usize = (4).min(adapters.len());
+    let possible: usize = adapters[1..end]
+        .iter()
+        .filter(|adp| **adp - current <= 3)
+        .count()
+        .max(1);
 
-    sub_set
-        .enumerate()
-        .filter(|(i, ad)| **ad - current <= 3)
-        .map(|(i, ad)| {
-            let range = dbg!(1..);
-            let slice = dbg!(&adapters[range]);
-            count_options(slice, i) + 1
-        })
-        .sum()
+    possible * count_options(&adapters[1..])
 }
 
 /* fn count_options(adapters: &[usize], current: usize, index: usize) -> usize {
