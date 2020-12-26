@@ -1,110 +1,161 @@
-use itertools::{GroupBy, Itertools};
+use itertools::Itertools;
 use lazy_static::lazy_static;
 use reduce::Reduce;
 use regex::Regex;
-use std::{
-    collections::{HashMap, HashSet},
-    iter::Map,
-};
-
-pub fn first(input: String) -> String {
-    let mut joined: HashSet<Ingredient> = HashSet::with_capacity(256);
-
-    let mut allergens: Vec<Ingredient> = input
-        .lines()
-        .map(|line| Ingredient::from(line))
-        .flatten()
-        .collect();
-
-    allergens.sort_by(|a0, a1| a0.name.cmp(&a1.name));
-
-    let ingredients: Vec<Ingredient> = allergens
-        .clone()
-        .into_iter()
-        .group_by(|alg: &Ingredient| alg.name.clone())
-        .into_iter()
-        .map(|(_, group)| group.collect::<Vec<Ingredient>>())
-        .filter_map(reduce)
-        .inspect(|m| println!("{:?}", m))
-        .collect();
-
-    "".to_string()
-}
-/*
-fn add(cont: &mut HashMap<String, HashMap<String, usize>>, m: &Ingredient) {
-    for key in m.keys {
-        let ingr: &mut HashMap<String, usize> = cont
-            .get_mut(&key)
-            .unwrap_or(&mut HashMap::with_capacity(16));
-
-        ing
-    }
-} */
-
-fn reduce(mut vec: Vec<Ingredient>) -> Option<Ingredient> {
-    vec.sort_by(|a0, a1| a0.name.cmp(&a1.name));
-    let reduced: Option<Ingredient> = dbg!(vec)
-        .into_iter()
-        .reduce(|a0: Ingredient, a1: Ingredient| a0.merge(&a1));
-
-    dbg!(reduced)
-}
-
-#[derive(Debug, Clone)]
-struct Ingredient {
-    pub name: String,
-    pub allergens: HashSet<String>,
-}
+use std::{collections::HashSet, fmt::Display, hash::Hash};
 
 lazy_static! {
-    static ref ALG: Regex = Regex::new(r"\w+").unwrap();
+    static ref WORDS: Regex = Regex::new(r"\w+").unwrap();
 }
 
-impl Ingredient {
-    pub fn from(line: &str) -> Vec<Ingredient> {
-        if line.trim().is_empty() {
-            return Vec::with_capacity(0);
+pub fn first(input: String) -> String {
+    let alrg: Vec<Allergen> = transform(&input);
+    let all_ingredients: Vec<Vec<&str>> = input.lines().map(words).collect();
+
+    let alrg: Vec<Allergen> = reduce(alrg, 0);
+    let not_safe: HashSet<&String> = alrg.iter().filter_map(|x| x.found_in()).collect();
+    let safe: Vec<&str> = all_ingredients
+        .iter()
+        .map(|x| x.iter().filter(|a| !not_safe.contains(&a.to_string())))
+        .flatten()
+        .map(|x| *x)
+        .collect();
+
+    safe.len().to_string()
+}
+
+fn words(line: &str) -> Vec<&str> {
+    let parts: Vec<&str> = line.split("(contains").collect();
+    let first: &str = parts.first().unwrap();
+    first.split_whitespace().collect()
+}
+
+fn reduce(alrg: Vec<Allergen>, i: usize) -> Vec<Allergen> {
+    if alrg.iter().all(|a| a.completed()) {
+        return alrg.into_iter().unique().collect();
+    }
+    let allergen: Allergen = alrg.get(i).unwrap().clone();
+    let processed: Vec<Allergen> = alrg.into_iter().map(|a| a.process(&allergen)).collect();
+    let next: usize = (i + 1) % processed.len();
+    reduce(processed, next)
+}
+
+fn transform(input: &str) -> Vec<Allergen> {
+    input
+        .lines()
+        .map(|line| parse_words(line))
+        .map(|(ingr, allrg)| create_ingr(allrg, ingr))
+        .flatten()
+        .collect()
+}
+
+fn parse_words(input: &str) -> (Vec<String>, Vec<String>) {
+    let parts: Vec<&str> = input.trim().split("contains").collect();
+    let first: Vec<String> = WORDS
+        .find_iter(parts.first().unwrap())
+        .map(|w| w.as_str().to_string())
+        .collect();
+    let second: Vec<String> = WORDS
+        .find_iter(parts.last().unwrap())
+        .map(|w| w.as_str().to_string())
+        .collect();
+    (first, second)
+}
+
+fn create_ingr(allergens: Vec<String>, ingredients: Vec<String>) -> Vec<Allergen> {
+    allergens
+        .iter()
+        .map(|alg| Allergen::from(alg, &ingredients))
+        .collect()
+}
+
+#[derive(Clone, Eq)]
+struct Allergen {
+    pub name: String,
+    ingr: HashSet<String>,
+}
+
+impl Allergen {
+    pub fn from(name: &str, ingr: &Vec<String>) -> Allergen {
+        Allergen {
+            name: name.to_string(),
+            ingr: ingr.into_iter().map(|x| x.to_owned()).collect(),
         }
-
-        let parts: Vec<&str> = line.trim().split("(contains").collect();
-
-        let allergens: HashSet<String> = ALG
-            .find_iter(parts.last().unwrap())
-            .map(|s| s.as_str().to_string())
-            .collect();
-
-        parts
-            .first()
-            .unwrap()
-            .split_whitespace()
-            .map(|s| s.to_string())
-            .map(|s| Ingredient {
-                name: s,
-                allergens: allergens.clone(),
-            })
-            .collect()
     }
 
-    pub fn merge(self, other: &Self) -> Self {
-        if self.name != other.name {
-            self
-        } else {
-            let intersection: HashSet<String> = self
-                .allergens
-                .intersection(&other.allergens)
-                .map(|s| s.to_string())
-                .collect();
+    pub fn completed(&self) -> bool {
+        self.ingr.len() == 1
+    }
 
-            Ingredient {
-                allergens: intersection,
+    pub fn found_in(&self) -> Option<&String> {
+        if self.completed() {
+            self.ingr.iter().last()
+        } else {
+            None
+        }
+    }
+
+    pub fn process(self, other: &Self) -> Self {
+        if self.name != other.name {
+            if !self.completed() && other.completed() {
+                let set: HashSet<String> = subtract(&self.ingr, &other.ingr);
+                Allergen { ingr: set, ..self }
+            } else {
+                self
+            }
+        } else {
+            let intersection: HashSet<String> = intersection(&self.ingr, &other.ingr);
+            Allergen {
+                ingr: intersection,
                 ..self
             }
         }
     }
 }
 
+impl PartialEq for Allergen {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && self.ingr == other.ingr
+    }
+}
+
+impl Hash for Allergen {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write(self.name.as_bytes());
+        for x in &self.ingr {
+            state.write(x.as_bytes());
+        }
+    }
+}
+
+fn subtract(from: &HashSet<String>, other: &HashSet<String>) -> HashSet<String> {
+    let mut from = from.clone();
+    for value in other {
+        from.remove(value);
+    }
+    from
+}
+
+fn intersection(set0: &HashSet<String>, set1: &HashSet<String>) -> HashSet<String> {
+    set0.intersection(set1).map(|x| x.to_owned()).collect()
+}
+
+impl Display for Allergen {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {:?}", self.name, self.ingr)
+    }
+}
+
 pub fn second(input: String) -> String {
-    input
+    let alrg: Vec<Allergen> = transform(&input);
+
+    let mut alrg: Vec<Allergen> = reduce(alrg, 0);
+    alrg.sort_by(|x, y| x.name.cmp(&y.name));
+    for x in &alrg {
+        println!("{}", x);
+    }
+    let not_safe: Vec<&String> = alrg.iter().filter_map(|x| x.found_in()).collect();
+    not_safe.iter().join(",").to_string()
 }
 
 #[cfg(test)]
@@ -122,6 +173,22 @@ mod tests {
         sqjhc mxmxvkd sbzzf (contains fish)
         ";
 
+        /// dairy.1 => mxmxvkd kfcds sqjhc nhms
+        /// fish.1 => mxmxvkd kfcds sqjhc nhms
+        /// dairy.2 => trh fvjkl sbzzf mxmxvkd
+        /// soy.1 => sqjhc fvjkl
+        /// fish.2 => sqjhc mxmxvkd sbzzf
+        ///
+        /// intersection(dairy.1, dairy.2) => mxmxvkd
+        /// intersection(fish.1, fish.2) => mxmxvkd sqjhc
+        /// mxmxvkd sqjhc - mxmxvkd => sqjhc
+        /// sqjhc fvjkl - sqjhc => fvjkl
+        ///
+        /// dairy = mxmxvkd
+        /// fish = sqjhc
+        /// soy = fvjkl
+        ///
+        /// Free: kfcds, nhms, trh, sbzzf
         assert_eq!("5", &first(input.to_string()))
     }
 }
